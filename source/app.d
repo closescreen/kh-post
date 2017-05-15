@@ -2,7 +2,7 @@ import std.stdio, std.string, std.getopt, core.stdc.stdlib, std.regex, std.algor
 import std.process, std.functional, std.conv;
 
 void main(string[] args) {
-  auto synopsis = "Comunicate with ClickHouse server via HTTP POST.\nUsage: echo abc | kh-post options...";
+  auto synopsis = "Communicates with ClickHouse server via HTTP POST.\nUsage: echo abc | kh-post options...";
   auto samples = "
 # explicity define server option:
 kh-post -s\"kh1\" -q'show tables from rnd600' 
