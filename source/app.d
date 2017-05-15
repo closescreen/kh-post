@@ -1,11 +1,12 @@
 import std.stdio, std.string, std.getopt, core.stdc.stdlib, std.regex, std.algorithm, std.concurrency, requests;
-import std.process, std.functional;
+import std.process, std.functional, std.conv;
 
 void main(string[] args) {
   auto server = environment.get("kh_server", "");
   string query;
   string post;
-  string just;
+  string if_query;
+  string ifnot_query;
   auto synopsis = "Send input data via HTTP POST to ClickHouse server.\nUsage: echo abc | kh-post options...";
   auto proto = "http://";
   auto port = "8123";
@@ -33,6 +34,8 @@ void main(string[] args) {
 	"server|s", "server address f.e. kh1.myorg. May be used environment variable 'kh_server'.", &server,
 	"query|q", "string for pass to server as query. --noinput flag will enabled.", &query,
 	"post|p", "like --query, but also will read data from stdin", &post, 
+	"if", "execute --query or --post only if --if=<query> result match m/[^0\\s]/. --if cannot read stdin.", &if_query,
+	"ifnot", "like --if=... but negates result. Both --if and --ifnot allowed at the same time", &ifnot_query,	
 	"format|f", "phrase: ' FORMAT <format>' will added to --query or --post", &format,
 	"noinput|n", "stdin has no input data ( only --query=.. data to send )", &noinput,
 	"content-type", "content-type header for input data [application/binary]", &content_type,
@@ -57,6 +60,35 @@ void main(string[] args) {
   auto fin = stdin;
   auto fout = stdout;
   auto ferr = stderr;
+  
+  if ( if_query.not!empty || ifnot_query.not!empty ){
+    auto rq = Request();
+    if ( if_query.not!empty ){
+      auto rs = rq.post( server, if_query, content_type);
+      if( !expect.canFind( rs.code)){
+        ferr.writefln("Response code: %s\n--ifquery: %s.\n%s Stop executing.", rs.code, if_query, rs.responseBody );
+        exit(1);
+      }
+      if ( ! rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
+        deb && ferr.writefln(
+            "Response body: %s\n after --if=\"%s\" does not contain any 'yes' symbols. Stop executing.", rs.responseBody, if_query);
+        exit(1);
+      }
+    }
+
+    if ( ifnot_query.not!empty ){
+      auto rs = rq.post( server, ifnot_query, content_type);
+      if( !expect.canFind( rs.code)){
+        ferr.writefln("Response code: %s\n--ifnot query: %s.\n%s Stop executing.", rs.code, ifnot_query, rs.responseBody );
+        exit(1);
+      }
+      if ( rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
+        deb && ferr.writefln(
+            "Response body: %s\n after --ifnot=\"%s\" contain smth 'yes' symbols. Stop executing.", rs.responseBody, ifnot_query);
+        exit(1);
+      }
+    }
+  }
   
   deb && ferr.writeln("spawn");
   auto childTid = spawn( &childPostSender, deb, server, content_type );
