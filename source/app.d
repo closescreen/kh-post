@@ -2,12 +2,31 @@ import std.stdio, std.string, std.getopt, core.stdc.stdlib, std.regex, std.algor
 import std.process, std.functional, std.conv;
 
 void main(string[] args) {
+  auto synopsis = "Comunicate with ClickHouse server via HTTP POST.\nUsage: echo abc | kh-post options...";
+  auto samples = "
+# explicity define server option:
+kh-post -s\"kh1\" -q'show tables from rnd600' 
+
+# as environment variable:
+export kh_server=kh1.myorg
+
+t=\"rnd600.test3\" 
+
+kh-post -q\"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\"
+#OR: echo \"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\" | kh-post
+
+kh-post -q\"show create table $t\"
+#OR: echo \"show create table $t\" | kh-post
+
+echo -e \"1\t'site1'\" | kh-post -p\"insert into $t (sid,name)\" -ftsv
+
+kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
+";
   auto server = environment.get("kh_server", "");
   string query;
   string post;
   string if_query;
   string ifnot_query;
-  auto synopsis = "Send input data via HTTP POST to ClickHouse server.\nUsage: echo abc | kh-post options...";
   auto proto = "http://";
   auto port = "8123";
   auto chunk_size = 1024*1024;
@@ -45,7 +64,9 @@ void main(string[] args) {
 	"port","server port [8123]", &port,
 	"proto","server protocol [http://]", &proto,
     );
-    if( cli.helpWanted ) defaultGetoptPrinter( synopsis, cli.options), writefln("Format in --format maybe:\n%s",formats), exit(0);
+    if( cli.helpWanted ) 
+        defaultGetoptPrinter( synopsis, cli.options), 
+        writefln("Format in --format maybe:\n%s \nSample:%s", formats, samples), exit(0);
   }
   catch(Throwable o) stderr.writeln(o.msg), exit(1);
 
@@ -109,10 +130,13 @@ void main(string[] args) {
     childTid.send( ( query.chomp ~ ( format.not!empty ? " FORMAT "~format : "" ) ~ "\n" ).representation );
   }
   
-  deb && ferr.writefln("wait for input data... from %s", fin);
-  if ( !noinput ) foreach( chunk; fin.byChunk( chunk_size) ){
+  
+  if ( !noinput ){
+    deb && ferr.writefln("wait for input data... from %s", fin);
+    foreach( chunk; fin.byChunk( chunk_size) ){
         childTid.send( chunk.idup);
-  }
+    }
+  }    
   childTid.send(true);// that's all
   
   auto answer_code = receiveOnly!int();
