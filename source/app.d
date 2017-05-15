@@ -1,9 +1,11 @@
 import std.stdio, std.string, std.getopt, core.stdc.stdlib, std.regex, std.algorithm, std.concurrency, requests;
-import std.process;
+import std.process, std.functional;
 
 void main(string[] args) {
   auto server = environment.get("kh_server", "");
   string query;
+  string post;
+  string just;
   auto synopsis = "Send input data via HTTP POST to ClickHouse server.\nUsage: echo abc | kh-post options...";
   auto proto = "http://";
   auto port = "8123";
@@ -12,20 +14,35 @@ void main(string[] args) {
   bool deb = false;
   auto expect = [200];
   bool noinput = false;
+  auto format = "";
+  auto formats = [
+    "tsv": "TSV", "tsvn": "TSVWithNames", "tsvnt": "TSVWithNamesAndTypes", "tsvr": "TSVRaw", "btsv": "BlockTabSeparated",
+    "csv": "CSV", "csvn": "CSVWithNames",
+    "rb": "RowBinary",
+    "p": "Pretty", "pc": "PrettyCompact", "pcmb": "PrettyCompactMonoBlock", "ps": "PrettySpace", 
+    "pne": "PrettyNoEscapes", "pcne": "PrettyCompactNoEscapes", "psne": "PrettySpaceNoEscapes",
+    "v":"Vertical",
+    "vv":"Values",
+    "j":"JSON", "jc": "JSONCompact", "jer":"JSONEachRow",
+    "tskv":"TSKV",
+    "xml":"XML",
+    ];
   
   try{
     auto cli = getopt( args,
 	"server|s", "server address f.e. kh1.myorg. May be used environment variable 'kh_server'.", &server,
-	"query|q", "string for pass to server as first part of query", &query,
+	"query|q", "string for pass to server as query. --noinput flag will enabled.", &query,
+	"post|p", "like --query, but also will read data from stdin", &post, 
+	"format|f", "phrase: ' FORMAT <format>' will added to --query or --post", &format,
 	"noinput|n", "stdin has no input data ( only --query=.. data to send )", &noinput,
 	"content-type", "content-type header for input data [application/binary]", &content_type,
 	"chunk-size", "chunk size in bites [1024*1024]", &chunk_size,
 	"deb|d", "enable debug messages", &deb,
 	"expect", "expect http codes: list of codes: --expect=404 # for good exit status", &expect,
-	"port|p","server port [8123]", &port,
+	"port","server port [8123]", &port,
 	"proto","server protocol [http://]", &proto,
     );
-    if( cli.helpWanted ) defaultGetoptPrinter( synopsis, cli.options), exit(0);
+    if( cli.helpWanted ) defaultGetoptPrinter( synopsis, cli.options), writefln("Format in --format maybe:\n%s",formats), exit(0);
   }
   catch(Throwable o) stderr.writeln(o.msg), exit(1);
 
@@ -49,13 +66,19 @@ void main(string[] args) {
   setMaxMailboxSize( childTid, 10, OnCrowding.block);
   
   // send --query=... as first part of POST data with "\n" at end:
-  if ( !query.empty ){
+  if ( post.not!empty && query.not!empty ) ferr.writeln("Either --post or --query allowed. Not both."), exit(1); 
+  else if ( query.not!empty ) noinput=true;
+  else if ( post.not!empty ) query = post;
+  
+  if (format.not!empty) format = formats.get( format.toLower, format );
+    
+  if ( query.not!empty ){
     deb && "Sending query: %s ...".writefln( query);
-    childTid.send( ( query.chomp ~ "\n" ).representation );
+    childTid.send( ( query.chomp ~ ( format.not!empty ? " FORMAT "~format : "" ) ~ "\n" ).representation );
   }
   
   deb && ferr.writefln("wait for input data... from %s", fin);
-  if (!noinput) foreach( chunk; fin.byChunk( chunk_size) ){
+  if ( !noinput ) foreach( chunk; fin.byChunk( chunk_size) ){
         childTid.send( chunk.idup);
   }
   childTid.send(true);// that's all
