@@ -29,6 +29,7 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   string if_query;
   string ifnot_query;
   auto yes_query = "";
+  auto yes_re_str = `[^0\s]`;
   auto proto = "http://";
   auto port = "8123";
   auto chunk_size = 1024*1024;
@@ -58,6 +59,7 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
 	"if", "execute '--query' only if --if=<query> result match m/[^0\\s]/. Otherwise exit(2). '--if' cannot read stdin.", &if_query,
 	"ifnot", "like '--if' but negates result. Starts after '--if'. Both '--if' and '--ifnot' allowed at the same time", &ifnot_query,
 	"yes|y", "--yes=<sql> executes <sql> (after --if|--ifnot and -q) and exit with 0 if result match by m/[^0\\s]/, and 3 otherwise", &yes_query,
+	"regex|r", "match '--yes' result with given regex. exit(0) if matched, exit(3) otherwise", &yes_re_str, 
 	"format|f", "phrase: ' FORMAT <format>' will added to --query string", &format,
 	"content-type", "content-type header for input data [application/binary]", &content_type,
 	"chunk-size", "chunk size in bites [1024*1024]", &chunk_size,
@@ -82,6 +84,8 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
 
   // childPostSender( bool deb, string server, string content_type )
+  
+//  auto yes_re = yes_re_str.not!empty ? regex( `[^0\s]` ) : regex( yes_re_str );
   
   auto fin = stdin;
   auto fout = stdout;
@@ -113,7 +117,7 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
       }
       if ( rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
         deb && ferr.writefln(
-            "Response body: %s\n after --ifnot=\"%s\" contain smth 'yes' symbols. Stop executing.", rs.responseBody, ifnot_query);
+            "Response body:\n%s\n after --ifnot=\"%s\" contain smth 'yes' symbols. Stop executing.", rs.responseBody, ifnot_query);
         msg && ferr.writefln(
             "\"%s\" - returns YES (--ifnot failed).", ifnot_query);
             
@@ -158,11 +162,11 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
         ferr.writefln("Response code: %s\n--yes query: %s.\n%s Stop executing.", rs.code, yes_query, rs.responseBody );
         exit(1);
       }
-      if ( rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
-        deb && ferr.writefln("Response body: %s\n after --yes=\"%s\" contain smth 'yes' symbols.", rs.responseBody, yes_query);
+      if ( rs.responseBody.to!string.matchFirst( yes_re_str )){ //r"[^0\s]") ){
+        deb && ferr.writefln("Response body: \n%s\n after --yes=\"%s\" contain smth 'yes' symbols.", rs.responseBody, yes_query);
         exit(0);
       }else{
-        deb && ferr.writefln("Response body: %s\n after --yes=\"%s\" not contain any 'yes' symbols.", rs.responseBody, yes_query);
+        deb && ferr.writefln("Response body: \n%s\n after --yes=\"%s\" not contain any 'yes' symbols.", rs.responseBody, yes_query);
         msg && ferr.writefln("\"%s\" - returns NO.", yes_query);
         exit(3);
       }
