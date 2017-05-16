@@ -83,6 +83,7 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
 
   if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
 
+  if ( yes_re_str.not!empty && yes_query.empty ) stderr.writeln("--regex=<re> without --yes=<sql> not allowed."), exit(1);
   // childPostSender( bool deb, string server, string content_type )
   
 //  auto yes_re = yes_re_str.not!empty ? regex( `[^0\s]` ) : regex( yes_re_str );
