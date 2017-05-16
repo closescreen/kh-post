@@ -87,9 +87,8 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   auto fout = stdout;
   auto ferr = stderr;
   
-  Request rq;
   if ( if_query.not!empty || ifnot_query.not!empty ){
-    rq = Request();
+    auto rq = Request();
     if ( if_query.not!empty ){
       auto rs = rq.post( server, if_query, content_type);
       if( !expect.canFind( rs.code)){
@@ -153,6 +152,7 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   }  
   
   if ( yes_query.not!empty ){
+      auto rq = Request();
       auto rs = rq.post( server, yes_query, content_type);
       if( !expect.canFind( rs.code)){
         ferr.writefln("Response code: %s\n--yes query: %s.\n%s Stop executing.", rs.code, yes_query, rs.responseBody );
