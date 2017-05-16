@@ -29,7 +29,8 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   string if_query;
   string ifnot_query;
   auto yes_query = "";
-  auto yes_re_str = `[^0\s]`;
+  auto yes_re_str_default = `[^0\s]`;
+  auto yes_re_str = "";
   auto proto = "http://";
   auto port = "8123";
   auto chunk_size = 1024*1024;
@@ -84,6 +85,8 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
 
   if ( yes_re_str.not!empty && yes_query.empty ) stderr.writeln("--regex=<re> without --yes=<sql> not allowed."), exit(1);
+  if ( yes_re_str.empty ) yes_re_str = yes_re_str_default;
+  
   // childPostSender( bool deb, string server, string content_type )
   
 //  auto yes_re = yes_re_str.not!empty ? regex( `[^0\s]` ) : regex( yes_re_str );
