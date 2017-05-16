@@ -5,6 +5,7 @@ void main(string[] args) {
   auto synopsis = "Communicates with ClickHouse server via HTTP POST.\nUsage: echo abc | kh-post options...";
   auto samples = "
 # explicity define server option:
+
 kh-post -s\"kh1\" -q'show tables from rnd600' 
 
 # as environment variable:
@@ -13,27 +14,28 @@ export kh_server=kh1.myorg
 t=\"rnd600.test3\" 
 
 kh-post -q\"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\"
-#OR: echo \"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\" | kh-post
+#OR: echo \"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\" | kh-post -i
 
 kh-post -q\"show create table $t\"
-#OR: echo \"show create table $t\" | kh-post
+#OR: echo \"show create table $t\" | kh-post -i
 
-echo -e \"1\t'site1'\" | kh-post -p\"insert into $t (sid,name)\" -ftsv
+echo -e \"1\t'site1'\" | kh-post -i -q\"insert into $t (sid,name)\" -ftsv
 
 kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
 ";
   auto server = environment.get("kh_server", "");
   string query;
-  string post;
+  auto read_stdin = false;
   string if_query;
   string ifnot_query;
+  auto yes_query = "";
   auto proto = "http://";
   auto port = "8123";
   auto chunk_size = 1024*1024;
   auto content_type = "application/binary";	
   bool deb = false;
+  bool msg = false;
   auto expect = [200];
-  bool noinput = false;
   auto format = "";
   auto formats = [
     "tsv": "TSV", "tsvn": "TSVWithNames", "tsvnt": "TSVWithNamesAndTypes", "tsvr": "TSVRaw", "btsv": "BlockTabSeparated",
@@ -51,15 +53,16 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   try{
     auto cli = getopt( args,
 	"server|s", "server address f.e. kh1.myorg. May be used environment variable 'kh_server'.", &server,
-	"query|q", "string for pass to server as query. --noinput flag will enabled.", &query,
-	"post|p", "like --query, but also will read data from stdin", &post, 
-	"if", "execute --query or --post only if --if=<query> result match m/[^0\\s]/. --if cannot read stdin.", &if_query,
-	"ifnot", "like --if=... but negates result. Both --if and --ifnot allowed at the same time", &ifnot_query,	
-	"format|f", "phrase: ' FORMAT <format>' will added to --query or --post", &format,
-	"noinput|n", "stdin has no input data ( only --query=.. data to send )", &noinput,
+	"query|q", "string for pass to server as query.", &query,
+	"stdin|i", "read first part of query from '-q', and second part from STDIN.", &read_stdin,
+	"if", "execute '--query' only if --if=<query> result match m/[^0\\s]/. Otherwise exit(2). '--if' cannot read stdin.", &if_query,
+	"ifnot", "like '--if' but negates result. Starts after '--if'. Both '--if' and '--ifnot' allowed at the same time", &ifnot_query,
+	"yes|y", "--yes=<sql> executes <sql> (after --if|--ifnot and -q) and exit with 0 if result match by m/[^0\\s]/, and 3 otherwise", &yes_query,
+	"format|f", "phrase: ' FORMAT <format>' will added to --query string", &format,
 	"content-type", "content-type header for input data [application/binary]", &content_type,
 	"chunk-size", "chunk size in bites [1024*1024]", &chunk_size,
 	"deb|d", "enable debug messages", &deb,
+	"msg", "print to stderr error message if '--if|--ifnot|--yes' fail.", &msg,
 	"expect", "expect http codes: list of codes: --expect=404 # for good exit status", &expect,
 	"port","server port [8123]", &port,
 	"proto","server protocol [http://]", &proto,
@@ -76,14 +79,17 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   
   deb && stderr.writefln( "server: %s\n expect_codes: %s", server, expect);
 
+  if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
+
   // childPostSender( bool deb, string server, string content_type )
   
   auto fin = stdin;
   auto fout = stdout;
   auto ferr = stderr;
   
+  Request rq;
   if ( if_query.not!empty || ifnot_query.not!empty ){
-    auto rq = Request();
+    rq = Request();
     if ( if_query.not!empty ){
       auto rs = rq.post( server, if_query, content_type);
       if( !expect.canFind( rs.code)){
@@ -91,9 +97,9 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
         exit(1);
       }
       if ( ! rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
-        deb && ferr.writefln(
+        (deb||msg) && ferr.writefln(
             "Response body: %s\n after --if=\"%s\" does not contain any 'yes' symbols. Stop executing.", rs.responseBody, if_query);
-        exit(1);
+        exit(2);
       }
     }
 
@@ -104,47 +110,58 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
         exit(1);
       }
       if ( rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
-        deb && ferr.writefln(
+        (deb||msg) && ferr.writefln(
             "Response body: %s\n after --ifnot=\"%s\" contain smth 'yes' symbols. Stop executing.", rs.responseBody, ifnot_query);
-        exit(1);
+        exit(2);
       }
     }
   }
   
-  deb && ferr.writeln("spawn");
-  auto childTid = spawn( &childPostSender, deb, server, content_type );
+  if ( query.not!empty || read_stdin ){
+    deb && ferr.writeln("spawn");
+    auto childTid = spawn( &childPostSender, deb, server, content_type );
 
-  bool myblock(Tid tid){ deb && writeln("blocking"); return false; }  
+    bool myblock(Tid tid){ deb && writeln("blocking"); return false; }  
   
-  setMaxMailboxSize( childTid, 10, OnCrowding.block);
+    setMaxMailboxSize( childTid, 10, OnCrowding.block);
   
-  // send --query=... as first part of POST data with "\n" at end:
-  if ( post.not!empty && query.not!empty ) ferr.writeln("Either --post or --query allowed. Not both."), exit(1); 
-  else if ( query.not!empty ) noinput=true;
-  else if ( post.not!empty ) query = post;
-  
-  if (format.not!empty) format = formats.get( format.toLower, format );
+    if (format.not!empty) format = formats.get( format.toLower, format );
     
-  if ( query.not!empty ){
+//  if ( query.not!empty ){
     deb && "Sending query: %s ...".writefln( query);
     childTid.send( ( query.chomp ~ ( format.not!empty ? " FORMAT "~format : "" ) ~ "\n" ).representation );
-  }
+//  }
   
-  
-  if ( !noinput ){
-    deb && ferr.writefln("wait for input data... from %s", fin);
-    foreach( chunk; fin.byChunk( chunk_size) ){
+    if ( read_stdin ){
+      deb && ferr.writeln("read stdin...");
+      foreach( chunk; fin.byChunk( chunk_size) ){
         childTid.send( chunk.idup);
+      }
+    }    
+    childTid.send(true);// that's all
+    auto answer_code = receiveOnly!int();
+    if( !expect.canFind( answer_code)){
+      deb && ferr.writefln("Answer code: %s", answer_code);
+      exit(1);
     }
-  }    
-  childTid.send(true);// that's all
+  }  
   
-  auto answer_code = receiveOnly!int();
-  
-  int my_exit_status = 0;
-  if( !expect.canFind( answer_code)) my_exit_status = 1; 
-  deb && ferr.writefln("Answer code: %s", answer_code);
-  exit( my_exit_status);
+  if ( yes_query.not!empty ){
+      auto rs = rq.post( server, yes_query, content_type);
+      if( !expect.canFind( rs.code)){
+        ferr.writefln("Response code: %s\n--yes query: %s.\n%s Stop executing.", rs.code, yes_query, rs.responseBody );
+        exit(1);
+      }
+      if ( rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
+        deb && ferr.writefln("Response body: %s\n after --yes=\"%s\" contain smth 'yes' symbols.", rs.responseBody, yes_query);
+        exit(0);
+      }else{
+        (deb||msg) && ferr.writefln("Response body: %s\n after --yes=\"%s\" not contain any 'yes' symbols.", rs.responseBody, yes_query);        
+        exit(3);
+      }
+    }  
+    
+  exit(0);
 }
 
 
