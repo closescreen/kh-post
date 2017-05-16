@@ -19,7 +19,7 @@ kh-post -q\"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DE
 kh-post -q\"show create table $t\"
 #OR: echo \"show create table $t\" | kh-post -i
 
-echo -e \"1\t'site1'\" | kh-post -i -q\"insert into $t (sid,name)\" -ftsv
+echo -e \"1\\t'site1'\" | kh-post -i -q\"insert into $t (sid,name)\" -ftsv
 
 kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
 ";
@@ -62,7 +62,7 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
 	"content-type", "content-type header for input data [application/binary]", &content_type,
 	"chunk-size", "chunk size in bites [1024*1024]", &chunk_size,
 	"deb|d", "enable debug messages", &deb,
-	"msg", "print to stderr error message if '--if|--ifnot|--yes' fail.", &msg,
+	"msg|m", "print to stderr error message if '--if|--ifnot|--yes' fail.", &msg,
 	"expect", "expect http codes: list of codes: --expect=404 # for good exit status", &expect,
 	"port","server port [8123]", &port,
 	"proto","server protocol [http://]", &proto,
