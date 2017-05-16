@@ -97,8 +97,11 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
         exit(1);
       }
       if ( ! rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
-        (deb||msg) && ferr.writefln(
+        deb && ferr.writefln(
             "Response body: %s\n after --if=\"%s\" does not contain any 'yes' symbols. Stop executing.", rs.responseBody, if_query);
+        msg && ferr.writefln(
+            "\"%s\" - returns NO (--if failed).", if_query);
+
         exit(2);
       }
     }
@@ -110,8 +113,11 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
         exit(1);
       }
       if ( rs.responseBody.to!string.matchFirst( r"[^0\s]") ){
-        (deb||msg) && ferr.writefln(
+        deb && ferr.writefln(
             "Response body: %s\n after --ifnot=\"%s\" contain smth 'yes' symbols. Stop executing.", rs.responseBody, ifnot_query);
+        msg && ferr.writefln(
+            "\"%s\" - returns YES (--ifnot failed).", ifnot_query);
+            
         exit(2);
       }
     }
@@ -156,7 +162,8 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
         deb && ferr.writefln("Response body: %s\n after --yes=\"%s\" contain smth 'yes' symbols.", rs.responseBody, yes_query);
         exit(0);
       }else{
-        (deb||msg) && ferr.writefln("Response body: %s\n after --yes=\"%s\" not contain any 'yes' symbols.", rs.responseBody, yes_query);        
+        deb && ferr.writefln("Response body: %s\n after --yes=\"%s\" not contain any 'yes' symbols.", rs.responseBody, yes_query);
+        msg && ferr.writefln("\"%s\" - returns NO.", yes_query);
         exit(3);
       }
     }  
