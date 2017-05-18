@@ -1,5 +1,5 @@
 import std.stdio, std.string, std.getopt, core.stdc.stdlib, std.regex, std.algorithm, std.concurrency, requests;
-import std.process, std.functional, std.conv;
+import std.process, std.functional, std.conv, core.thread;
 
 void main(string[] args) {
   auto synopsis = "Communicates with ClickHouse server via HTTP POST.\nUsage: echo abc | kh-post options...";
@@ -59,7 +59,7 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
 	"server|s", "server address f.e. kh1.myorg. May be used environment variable 'kh_server' [%s].".format(server), &server,
 	"query|q", "string for pass to server as query.", &query,
 	std.getopt.config.caseSensitive,
-	"DANGER", "if text in '-q|--if|--ifnot|-y' has /drop|alter/i, then you must enable this flag (stdin will not checked)", &danger_admited,
+	"FORCE", "if text in '-q|--if|--ifnot|-y' has /drop|alter/i, then you must enable this flag (stdin will not checked)", &danger_admited,
 	std.getopt.config.caseInsensitive,
 	"stdin|i", "read first part of query from '-q', and second part from STDIN.", &read_stdin,
 	"if", "execute '--query' only if --if=<query> result match m/[^0\\s]/. Otherwise exit(2). '--if' cannot read stdin.", &if_query,
@@ -94,10 +94,22 @@ kh-post -q\"select * from $t\" --if \"exists table $t\" -ftsvr
   if ( yes_re_str.not!empty && yes_query.empty ) stderr.writeln("--regex=<re> without --yes=<sql> not allowed."), exit(1);
   if ( yes_re_str.empty ) yes_re_str = yes_re_str_default;
   
+  auto timer = 0;
+  
   foreach (text; [query, yes_query, if_query, ifnot_query ]){
-    if ( matchFirst( text, regex(`drop|alter`, "i")) && !danger_admited ) 
-      stderr.writefln("Dander operation detected: %s\n use --DANGER flag to allow operation", text), exit(1);
+    if ( matchFirst( text, regex(`drop|alter`, "i")) && !danger_admited ){ 
+      timer = 15;
+      stderr.writefln("Ctrl+C to abort (wait %s sec). Use --FORCE to disable timer.\n%s\n", timer, text);
+      break;
+    }   
   }
+  
+  if (timer)
+    foreach (i; 1..timer+1 ){ 
+      Thread.sleep( dur!("seconds")( 1 ) );
+      stderr.writef("%s ", i);
+    }
+  
   
   auto fin = stdin;
   auto fout = stdout;
