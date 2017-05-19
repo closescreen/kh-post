@@ -2,29 +2,29 @@ import std.stdio, std.string, std.getopt, core.stdc.stdlib, std.regex, std.algor
 import std.process, std.functional, std.conv, core.thread;
 
 void main(string[] args) {
-  auto synopsis = "Communicates with ClickHouse server via HTTP POST.\nUsage: echo abc | kh-post options...";
+  auto synopsis = "Communicates with ClickHouse server via HTTP POST.\nUsage: echo abc | khpost options...";
   auto samples = "
 # explicity definition '--server' option:
-kh-post -s\"kh1\" -q'show tables from rnd600' 
+khpost -s\"kh1\" -q'show tables from rnd600' 
 
 # 'server' option as environment variable:
 export kh_server=kh1.myorg
 
 t=\"rnd600.test3\" # --bash variable
 
-kh-post -q\"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\"
-#OR: echo \"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\" | kh-post -i
+khpost -q\"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\"
+#OR: echo \"CREATE TABLE IF NOT EXISTS $t ( sid UInt64,  name String,  d Date DEFAULT today()) ENGINE = MergeTree(d, sid, 8192)\" | khpost -i
 
-kh-post -q\"show create table $t\"
-#OR: echo \"show create table $t\" | kh-post -i
+khpost -q\"show create table $t\"
+#OR: echo \"show create table $t\" | khpost -i
 
-echo -e \"1\\t'site1'\" | kh-post -i -q\"insert into $t (sid,name)\" -ftsv
+echo -e \"1\\t'site1'\" | khpost -i -q\"insert into $t (sid,name)\" -ftsv
 
 # Using '-y' for testing non-zero query result (without using 'grep'):
-kh-post -y\"exists table mydb.mytable\" || echo NO
+khpost -y\"exists table mydb.mytable\" || echo NO
 
 # -q will exit with status(1) if http return code != 200:
-kh-post -q\"create table test_wrong_definition\" || echo \"NO\"
+khpost -q\"create table test_wrong_definition\" || echo \"NO\"
 ";
   auto server = environment.get("kh_server", "");
   string query;
@@ -81,7 +81,7 @@ kh-post -q\"create table test_wrong_definition\" || echo \"NO\"
   }
   catch(Throwable o) stderr.writeln(o.msg), exit(1);
 
-  if( empty( server)) stderr.writeln("kh-post: server not defined!"), exit(1);
+  if( empty( server)) stderr.writeln("khpost: server not defined!"), exit(1);
   else if( !matchFirst( server, regex("https?://"))) server = proto ~ server; // 'kh.myorg' --> 'http://kh.myorg'
   !matchFirst( server, regex(`:\d+$`)) && ( server ~= ":" ~ port ); // 'http://kh.myorg' --> 'http://kh.myorg:8123'
   
