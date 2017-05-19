@@ -25,6 +25,9 @@ khpost -y\"exists table mydb.mytable\" || echo NO
 
 # -q will exit with status(1) if http return code != 200:
 khpost -q\"create table test_wrong_definition\" || echo \"NO\"
+
+# Simple queryes may by pass without '-q':
+khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
 ";
   auto server = environment.get("kh_server", "");
   string query;
@@ -88,6 +91,7 @@ khpost -q\"create table test_wrong_definition\" || echo \"NO\"
   deb && stderr.writefln( "deb:%s, verb:%s, server: %s, expect_codes: %s, chunk_size: %s, content_type: %s", 
     deb, verbosity, server, expect, chunk_size, content_type);
 
+  if ( query.empty && args.length ) query = args[1..$].join(" "); // if empty '-q' other args became '-q'
   if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
 
   if ( yes_re_str.not!empty && yes_query.empty ) stderr.writeln("--regex=<re> without --yes=<sql> not allowed."), exit(1);
