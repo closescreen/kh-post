@@ -40,6 +40,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
   auto chunk_size = 100_000_000;
   auto content_type = "application/binary";	
   auto deb = 0;
+  auto timeout = 15; // seconds
   auto verbosity = 0;
   bool errors= false;
   auto expect = [200];
@@ -71,6 +72,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
 	"format|f", "phrase: ' FORMAT <format>' will added to --query string", &format,
 	"content-type", "content-type header for input data [%s]".format(content_type), &content_type,
 	"chunk-size", "chunk size in bytes [%s]".format(chunk_size), &chunk_size,
+	"timeout|t", "number of seconds to wait server answer [%s]".format(timeout), &timeout, 
 	"deb|d+", "increase debug messages level. Multiple '-d' allowed.", &deb,
 	"verbosity|v+", "increment verbosity level for http requests. Multiple '-v' allowed to increase it.", &verbosity,
 	"errors|e", "print to stderr error message if '--yes' fail.", &errors,
@@ -110,7 +112,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
   
   if (timer)
     foreach (i; 1..timer+1 ){ 
-      Thread.sleep( dur!("seconds")( 1 ) );
+      Thread.sleep( 1.seconds );
       stderr.writef("%s ", i);
     }
   
@@ -121,7 +123,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
   
   if ( query.not!empty || read_stdin ){
     deb>1 && ferr.writeln("spawn child process");
-    auto childTid = spawn( &childPostSender, deb, verbosity, server, content_type );
+    auto childTid = spawn( &childPostSender, deb, verbosity, timeout, server, content_type );
 
     bool myblock(Tid tid){ deb>1 && ferr.writeln("blocking on mailbox maxsize (sending slower then reading)"); return false; }  
   
@@ -159,6 +161,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
   
   if ( yes_query.not!empty ){
       auto rq = Request();
+      rq.timeout = timeout.seconds;
       if (verbosity) rq.verbosity = verbosity;
       auto rs = rq.post( server, yes_query, content_type);
       if( !expect.canFind( rs.code)){
@@ -180,7 +183,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
 
 
 
-void childPostSender( uint deb, uint verbosity, string server, string content_type ){
+void childPostSender( uint deb, uint verbosity, int timeout, string server, string content_type ){
   
   auto chunks = new Generator!( immutable(ubyte)[] )({
     for( bool run=true; run;){
@@ -201,6 +204,7 @@ void childPostSender( uint deb, uint verbosity, string server, string content_ty
   });
 
   auto rq = Request();
+  rq.timeout = timeout.seconds;
   if (verbosity) rq.verbosity = verbosity;
   rq.useStreaming = true;
   deb && stderr.writeln("Start post sending...");
