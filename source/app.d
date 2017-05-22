@@ -90,8 +90,8 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
   else if( !matchFirst( server, regex("https?://"))) server = proto ~ server; // 'kh.myorg' --> 'http://kh.myorg'
   !matchFirst( server, regex(`:\d+$`)) && ( server ~= ":" ~ port ); // 'http://kh.myorg' --> 'http://kh.myorg:8123'
   
-  deb && stderr.writefln( "deb:%s, verb:%s, server: %s, expect_codes: %s, chunk_size: %s, content_type: %s", 
-    deb, verbosity, server, expect, chunk_size, content_type);
+  deb && stderr.writefln( "deb:%s, verb:%s, tmout:%s server: %s, expect_codes: %s, chunk_size: %s, content_type: %s", 
+    deb, verbosity, timeout, server, expect, chunk_size, content_type);
 
   if ( query.empty && args.length ) query = args[1..$].join(" "); // if empty '-q' other args became '-q'
   if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
@@ -208,25 +208,35 @@ void childPostSender( uint deb, uint verbosity, int timeout, string server, stri
   if (verbosity) rq.verbosity = verbosity;
   rq.useStreaming = true;
   deb && stderr.writeln("Start post sending...");
-  auto rs = rq.post( server, chunks, content_type);
-  auto stream = rs.receiveAsRange();
+  try{
+   auto rs = rq.post( server, chunks, content_type);
+   auto stream = rs.receiveAsRange();
 
-  if (deb>2) while(!stream.empty) { // text bebug
+   if (deb>2) while(!stream.empty) { // text bebug
       stderr.writefln("Received +%d bytes ( %d / %d )", stream.front.length, rq.contentReceived, rq.contentLength);
       stdout.write( cast(string)stream.front );
       stream.popFront;
-  }
-  else if (deb>1) while(!stream.empty) {
+   }
+   else if (deb>1) while(!stream.empty) {
       stderr.write("."); // like a progressbar
       stdout.write( cast(string)stream.front );
       stream.popFront;
-  }
-  else while(!stream.empty) {
+   }
+   else while(!stream.empty) {
       stdout.write( cast(string)stream.front );
       stream.popFront;
-  }
+   }
   
-  ownerTid.send( rs.code);
+   ownerTid.send( rs.code);
+  }
+//  catch(TimeoutException e){
+//    stderr.writefln("Timeout error. (timeout=%s)", timeout );
+//    exit(1);
+//  }
+  catch(Throwable e){
+    stderr.writefln("Error: %s", e.msg);
+    exit(1);
+  }
 }
 
 
