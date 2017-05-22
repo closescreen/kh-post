@@ -40,7 +40,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
   auto chunk_size = 100_000_000;
   auto content_type = "application/binary";	
   auto deb = 0;
-  auto timeout = 15; // seconds
+  auto timeout = 0; // seconds
   auto verbosity = 0;
   bool errors= false;
   auto expect = [200];
