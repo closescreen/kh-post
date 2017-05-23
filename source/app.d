@@ -28,8 +28,16 @@ khpost -q\"create table test_wrong_definition\" || echo \"NO\"
 
 # Simple queryes may by pass without '-q':
 khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
+
+# Using alias '~':
+
+kh_database=rnd600 khpost \"show tables from ~\"
+#or:
+khpost -~rnd600 \"show tables from ~\" # - the same
+
 ";
   auto server = environment.get("kh_server", "");
+  auto tilda_alias = environment.get("kh_database","");
   string query;
   auto read_stdin = false;
   auto yes_query = "";
@@ -63,6 +71,7 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
     auto cli = getopt( args,
 	"server|s", "server address f.e. kh1.myorg. May be used environment variable 'kh_server' [%s].".format(server), &server,
 	"query|q", "string for pass to server as query.", &query,
+	"tilda|~", "the string to be replace '~' which in queryes '-q|-y' (stdin not processed). Usefull as alias for database name.", &tilda_alias,
 	std.getopt.config.caseSensitive,
 	"FORCE", "if text in '-q|-y' has /drop|alter/i, then you must enable this flag (stdin will not checked)", &danger_admited,
 	std.getopt.config.caseInsensitive,
@@ -90,18 +99,27 @@ khpost exists mytable # <-- will treated as: \"khpost -q'exists mytable'\"
   else if( !matchFirst( server, regex("https?://"))) server = proto ~ server; // 'kh.myorg' --> 'http://kh.myorg'
   !matchFirst( server, regex(`:\d+$`)) && ( server ~= ":" ~ port ); // 'http://kh.myorg' --> 'http://kh.myorg:8123'
   
-  deb && stderr.writefln( "deb:%s, verb:%s, tmout:%s server: %s, expect_codes: %s, chunk_size: %s, content_type: %s", 
-    deb, verbosity, timeout, server, expect, chunk_size, content_type);
-
   if ( query.empty && args.length ) query = args[1..$].join(" "); // if empty '-q' other args became '-q'
   if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
 
   if ( yes_re_str.not!empty && yes_query.empty ) stderr.writeln("--regex=<re> without --yes=<sql> not allowed."), exit(1);
   if ( yes_re_str.empty ) yes_re_str = yes_re_str_default;
+
+  deb && stderr.writefln( 
+    "deb:%s, verb:%s, tmout:%s server: %s, expect_codes: %s, chunk_size: %s, content_type: %s, ~:%s, -q:%s, -y:%s",
+    deb,   verbosity, timeout, server,     expect,           chunk_size,     content_type, tilda_alias ,query, yes_query
+  );
+
   
   auto timer = 0;
   
-  foreach (text; [query, yes_query ]){
+  if ( tilda_alias.not!empty ){
+      query = query.replaceAll( regex("~"), tilda_alias);
+      yes_query = yes_query.replaceAll( regex("~"), tilda_alias);
+      deb && stderr.writefln("'~' replaced with '%s'.", tilda_alias);
+  }
+
+  foreach ( text; [query , yes_query] ){
     if ( matchFirst( text, regex(`drop|alter`, "i")) && !danger_admited ){ 
       timer = 15;
       stderr.writefln("-----------------------------------------------------------\n" ~
