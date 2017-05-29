@@ -43,6 +43,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
   auto yes_query = "";
   auto yes_re_str_default = `[^0\s]`;
   auto yes_re_str = "";
+  auto int_query = "";
   auto proto = "http://";
   auto port = "8123";
   auto chunk_size = 100_000_000;
@@ -78,6 +79,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
 	"stdin|i", "read first part of query from '-q', and second part from STDIN.", &read_stdin,
 	"yes|y", "--yes=<sql> executes <sql> (after -q) and exit with 0 if result match by m/[^0\\s]/, and 3 otherwise", &yes_query,
 	"regex|r", "match '--yes' result with given regex. exit(0) if matched, exit(3) otherwise", &yes_re_str, 
+	"int", "Print answer for this query as long integer. Print 0 if answer is empty or has not digits.", &int_query,
 	"format|f", "phrase: ' FORMAT <format>' will added to --query string", &format,
 	"content-type", "content-type header for input data [%s]".format(content_type), &content_type,
 	"chunk-size", "chunk size in bytes [%s]".format(chunk_size), &chunk_size,
@@ -100,7 +102,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
   !matchFirst( server, regex(`:\d+$`)) && ( server ~= ":" ~ port ); // 'http://kh.myorg' --> 'http://kh.myorg:8123'
   
   if ( query.empty && args.length ) query = args[1..$].join(" "); // if empty '-q' other args became '-q'
-  if (!read_stdin && query.empty && yes_query.empty) stderr.writeln("Either -i or -q or -y must be defined."), exit(1);
+  if (!read_stdin && query.empty && yes_query.empty && int_query.empty) stderr.writeln("Either -i or -q or -y or -n must be defined."), exit(1);
 
   if ( yes_re_str.not!empty && yes_query.empty ) stderr.writeln("--regex=<re> without --yes=<sql> not allowed."), exit(1);
   if ( yes_re_str.empty ) yes_re_str = yes_re_str_default;
@@ -110,16 +112,16 @@ khpost -~rnd600 \"show tables from ~\" # - the same
     deb,   verbosity, timeout, server,     expect,           chunk_size,     content_type, tilda_alias ,query, yes_query
   );
 
-  
   auto timer = 0;
   
   if ( tilda_alias.not!empty ){
       query = query.replaceAll( regex("~"), tilda_alias);
       yes_query = yes_query.replaceAll( regex("~"), tilda_alias);
+      int_query = int_query.replaceAll( regex("~"), tilda_alias);
       deb && stderr.writefln("'~' replaced with '%s'.", tilda_alias);
   }
 
-  foreach ( text; [query , yes_query] ){
+  foreach ( text; [query , yes_query, int_query] ){
     if ( matchFirst( text, regex(`drop|alter`, "i")) && !danger_admited ){ 
       timer = 15;
       stderr.writefln("-----------------------------------------------------------\n" ~
@@ -183,7 +185,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
       if (verbosity) rq.verbosity = verbosity;
       auto rs = rq.post( server, yes_query, content_type);
       if( !expect.canFind( rs.code)){
-        ferr.writefln("Response code: %s\n--yes query: %s.\n%s Stop executing.", rs.code, yes_query, rs.responseBody );
+        ferr.writefln("Response code: %s\n--yes=%s.\n%s Stop executing.", rs.code, yes_query, rs.responseBody );
         exit(1);
       }
       if ( rs.responseBody.to!string.matchFirst( yes_re_str )){ 
@@ -194,7 +196,33 @@ khpost -~rnd600 \"show tables from ~\" # - the same
         errors && ferr.writefln("\"%s\" - returns NO.", yes_query);
         exit(3);
       }
-  }  
+  }
+
+  if ( int_query.not!empty ){
+      auto rq = Request();
+      rq.timeout = timeout.seconds;
+      if (verbosity) rq.verbosity = verbosity;
+      auto rs = rq.post( server, int_query, content_type);
+      if( !expect.canFind( rs.code)){
+        ferr.writefln("Response code: %s\n--num=%s.\n%s Stop executing.", rs.code, int_query, rs.responseBody );
+        exit(1);
+      }
+      long rv = 0;
+      if ( auto m = rs.responseBody.to!string.matchFirst( regex(r"-?\d+")) ){
+//      if ( rs.responseBody.to!string.matchFirst( yes_re_str )){ 
+        deb && ferr.writefln("Response body: '%s' after --num=\"%s\" contain integer: %s.", rs.responseBody, int_query, m[0]);
+        //exit(0);
+        rv = to!long(m[0]);
+      }else{
+        deb && ferr.writefln("Response body: '%s' after --num=\"%s\" not contain any integers.", rs.responseBody, int_query);
+        errors && ferr.writefln("\"%s\" - has not digits.", int_query);
+        //exit(3);
+        rv = 0;
+      }
+      writefln("%d",rv);
+      exit(0);
+  }
+    
     
   exit(0);
 }
