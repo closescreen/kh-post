@@ -36,7 +36,7 @@ kh_database=rnd600 khpost \"show tables from ~\"
 khpost -~rnd600 \"show tables from ~\" # - the same
 
 ";
-  auto server = environment.get("kh_server", "");
+  auto server = environment.get("kh_server", "localhost");
   auto tilda_alias = environment.get("kh_database","");
   string query;
   auto read_stdin = false;
