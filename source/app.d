@@ -46,7 +46,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
   auto int_query = "";
   auto proto = "http://";
   auto port = "8123";
-  auto chunk_size = 100_000_000;
+  auto child_mailbox_size = 1;
   auto content_type = "application/binary";	
   auto deb = 0;
   auto timeout = 0; // seconds
@@ -82,7 +82,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
 	"int", "Print answer for this query as long integer. Print 0 if answer is empty or has not digits.", &int_query,
 	"format|f", "phrase: ' FORMAT <format>' will added to --query string", &format,
 	"content-type", "content-type header for input data [%s]".format(content_type), &content_type,
-	"chunk-size", "chunk size in bytes [%s]".format(chunk_size), &chunk_size,
+	"child-mailbox-size", "count lines in mailbox [%s] = buffer-size".format( child_mailbox_size ), &child_mailbox_size,
 	"timeout|t", "number of seconds to wait server answer [%s]".format(timeout), &timeout, 
 	"deb|d+", "increase debug messages level. Multiple '-d' allowed.", &deb,
 	"verbosity|v+", "increment verbosity level for http requests. Multiple '-v' allowed to increase it.", &verbosity,
@@ -108,8 +108,8 @@ khpost -~rnd600 \"show tables from ~\" # - the same
   if ( yes_re_str.empty ) yes_re_str = yes_re_str_default;
 
   deb && stderr.writefln( 
-    "deb:%s, verb:%s, tmout:%s server: %s, expect_codes: %s, chunk_size: %s, content_type: %s, ~:%s, -q:%s, -y:%s",
-    deb,   verbosity, timeout, server,     expect,           chunk_size,     content_type, tilda_alias ,query, yes_query
+    "deb:%s, verb:%s, tmout:%s server: %s, expect_codes: %s, content_type: %s, ~:%s, -q:%s, -y:%s",
+    deb,   verbosity, timeout, server,     expect,           content_type, tilda_alias ,query, yes_query
   );
 
   auto timer = 0;
@@ -147,7 +147,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
 
     bool myblock(Tid tid){ deb>1 && ferr.writeln("blocking on mailbox maxsize (sending slower then reading)"); return false; }  
   
-    setMaxMailboxSize( childTid, 10, OnCrowding.block);
+    setMaxMailboxSize( childTid, child_mailbox_size, OnCrowding.block);
   
     if (format.not!empty) format = formats.get( format.toLower, format );
     
@@ -157,15 +157,18 @@ khpost -~rnd600 \"show tables from ~\" # - the same
     if ( read_stdin ){
       deb && ferr.writeln("read stdin for send to child...");
 
-      if (deb>2) foreach( chunk; fin.byChunk( chunk_size) ){
+// если byLibe тогда не по одной строке, а по несколько
+      if (deb>2) foreach( chunk; fin.byLine ){
+
         ferr.writefln("send: %s", chunk); // full text
         childTid.send( chunk.idup);
       }
-      else if (deb>1) foreach( chunk; fin.byChunk( chunk_size) ){
+      else if (deb>1) foreach( chunk; fin.byLine ){
         ferr.write("~"); // like a progress bar >>>>>
         childTid.send( chunk.idup);
       }
-      else foreach( chunk; fin.byChunk( chunk_size) ){ // withiout bedug
+      else foreach( chunk; fin.byLine ){ // withiout bedug
+
         childTid.send( chunk.idup);
       }
 
@@ -200,6 +203,7 @@ khpost -~rnd600 \"show tables from ~\" # - the same
 
   if ( int_query.not!empty ){
       auto rq = Request();
+      //rq.clearHeaders();
       rq.timeout = timeout.seconds;
       if (verbosity) rq.verbosity = verbosity;
       auto rs = rq.post( server, int_query, content_type);
@@ -230,14 +234,13 @@ khpost -~rnd600 \"show tables from ~\" # - the same
 
 
 void childPostSender( uint deb, uint verbosity, int timeout, string server, string content_type ){
-  
+  ulong count_of_bytes = 0;  
   auto chunks = new Generator!( immutable(ubyte)[] )({
     for( bool run=true; run;){
         receive(
             ( immutable(ubyte)[] chunk){ 
                 if (deb>2) stderr.writefln("Generator yeld chunk:\n%s", chunk);
                 else if (deb>1) stderr.write(">");
-                
                 yield( chunk); 
             }, // получили часть данных
             ( bool stop){ 
@@ -251,38 +254,54 @@ void childPostSender( uint deb, uint verbosity, int timeout, string server, stri
 
   auto rq = Request();
   rq.timeout = timeout.seconds;
+  rq.clearHeaders();
+  rq.addHeaders(["Accept-Encoding":""]);
+  
   if (verbosity) rq.verbosity = verbosity;
   rq.useStreaming = true;
   deb && stderr.writeln("Start post sending...");
+  
   try{
    auto rs = rq.post( server, chunks, content_type);
-   auto stream = rs.receiveAsRange();
+   try{
+    auto stream = rs.receiveAsRange();
 
-   if (deb>2) while(!stream.empty) { // text bebug
+    if (deb>2) while(!stream.empty) { // text bebug
       stderr.writefln("Received +%d bytes ( %d / %d )", stream.front.length, rq.contentReceived, rq.contentLength);
       stdout.write( cast(string)stream.front );
       stream.popFront;
-   }
-   else if (deb>1) while(!stream.empty) {
+    }
+    else if (deb>1) while(!stream.empty) {
       stderr.write("."); // like a progressbar
       stdout.write( cast(string)stream.front );
       stream.popFront;
-   }
-   else while(!stream.empty) {
+    }
+    else while(!stream.empty) {
       stdout.write( cast(string)stream.front );
       stream.popFront;
-   }
+    }
+   
+    scope(exit){
+      while(!stream.empty) {
+        stderr.write( cast(string)stream.front );
+        stream.popFront;
+      }      
+    }
   
-   ownerTid.send( rs.code);
+    ownerTid.send( rs.code);
+   }
+   catch(Throwable e){
+    stderr.writefln("Error: %s", e.msg);
+    exit(1);
+   }
+   
   }
-//  catch(TimeoutException e){
-//    stderr.writefln("Timeout error. (timeout=%s)", timeout );
-//    exit(1);
-//  }
   catch(Throwable e){
     stderr.writefln("Error: %s", e.msg);
     exit(1);
   }
+ 
+  
 }
 
 
